@@ -1,42 +1,20 @@
 const request = require('request-promise');
-const cheerio = require('cheerio');
 const fs = require('fs')
 
-const pricePattern = /[. €]/ig;
-const spacePattern = /\s+/ig;
+const year = 2023
 
 const getGehalt = function (bJahr) {
-    return request.post(
-        'https://www.brutto-netto-rechner.info/',
-        {
-            form: {
-                "f_bruttolohn": bJahr,
-                "f_abrechnungszeitraum": "jahr",
-                "f_geld_werter_vorteil": 0,
-                "f_abrechnungsjahr": 2018,
-                "f_steuerfreibetrag": 0,
-                "f_steuerklasse": 1,
-                "f_kirche": "nein",
-                "f_bundesland": "nordrhein-westfalen",
-                "f_alter": 20,
-                "f_kinder": "nein",
-                "f_kinderfreibetrag": 0,
-                "f_krankenversicherung": "pflichtversichert",
-                "f_private_kv": "",
-                "f_arbeitgeberzuschuss_pkv": "ja",
-                "f_KVZ": 1.1,
-                "f_rentenversicherung": "pflichtversichert",
-                "f_arbeitslosenversicherung": "pflichtversichert",
-                "ok": 1
-            }
-        }).then(body => {
-            const $ = cheerio.load(body);
-            var nettoWerte = $('.right_column.orange.big b').text().replace(pricePattern, '').replace(spacePattern, ' ').replace(',', '.').trim().split(' ');
-            return { bMonat: bJahr / 12, bJahr, nMonat: parseFloat(nettoWerte[0]), nJahr: parseFloat(nettoWerte[1]) }
-        });
+    var url = `https://onlinerechner.haude.at/haude/brutto-netto-rechner-2013/json/${year}/${bJahr}/brutto/jaerlich/0/0/Angestellter/0/false/0/0/keindz/keine/0/true/false/true/08773489/0/0/false/0`;
+
+    return request.get(url).then(body => {
+        const obj = JSON.parse(body);
+        return { bMonat: bJahr / 12, bJahr, nMonat: obj["Netto_DN"]["Monat"], nMonat13: obj["Netto_DN"]["Urlaubszuschuss"], nMonat14: obj["Netto_DN"]["Weihnachtsgeld"], nMonatDurchschnitt: obj["Netto_DN"]["Durchschnitt"], nJahr: obj["Netto_DN"]["Jahr"] }
+    }).catch(function (err) { // if rp.get rejects (e.g. 500), do this:
+        console.log(err)
+    });;
 }
 
-var toFixed = function(n) {
+var toFixed = function (n) {
     return (Math.round(n * 100) / 100).toFixed(2);
 }
 
@@ -49,20 +27,23 @@ for(var i = bereich[0]; i <= bereich[1]; i+=1000) {
         var bruttoMonat = toFixed(gehalt.bMonat);
         var nettoJahr = toFixed(gehalt.nJahr);
         var nettoMonat = toFixed(gehalt.nMonat);
-        var s = `${bruttoMonat};${bruttoJahr};${nettoMonat};${nettoJahr}\n`;
+        var nettoMonat13 = toFixed(gehalt.nMonat13);
+        var nettoMonat14 = toFixed(gehalt.nMonat14);
+        var nettoMonatDurchschnitt = toFixed(gehalt.nMonatDurchschnitt);
+        var s = `${bruttoMonat};${bruttoJahr};${nettoMonat};${nettoMonat13};${nettoMonat14};${nettoMonatDurchschnitt};${nettoJahr}\n`;
         zeilen.push([gehalt.bJahr, s]);
-        fs.appendFile('gehaelter.csv', s);
+        fs.appendFileSync('gehaelter.csv', s);
         counter += 1000;
     }).then(() => {
         if (counter == bereich[1] - bereich[0] + 1000) { // done
 
-            const exampleFile = 'EXAMPLE.md';
+            const exampleFile = 'BRUTTO-NETTO-AUSTRIA-2023.md';
             try {
                 fs.unlinkSync(exampleFile);
             } catch (e){}
 
-            fs.appendFileSync(exampleFile, '| brutto Monat | brutto Jahr | netto Monat | netto Jahr |\n');
-            fs.appendFileSync(exampleFile, '| :-: | :-: | :-: | :-: |\n');
+            fs.appendFileSync(exampleFile, '| brutto Monat | brutto Jahr | netto Monat | netto Urlaubszuschuss | netto Weihnachtszuschuss | netto Durchschnitt | netto Jahr |\n');
+            fs.appendFileSync(exampleFile, '| :-: | :-: | :-: | :-: | :-: | :-: | :-: |\n');
 
             zeilen.sort(function (a, b) {
                 if (a[0] < b[0]) return -1;
